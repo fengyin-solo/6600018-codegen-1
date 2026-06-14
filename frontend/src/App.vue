@@ -136,10 +136,15 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { useOcrStore } from './store/ocr'
 import ImageCanvas from './components/ImageCanvas.vue'
 
 const store = useOcrStore()
+
+onMounted(() => {
+  store.loadDocuments()
+})
 
 function onUpload(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]

@@ -10,6 +10,7 @@ export const useOcrStore = defineStore('ocr', () => {
   const searchResults = ref<OCRResult[]>([])
   const batchQueue = ref<BatchItem[]>([])
   const isBatchProcessing = ref(false)
+  const isInitialized = ref(false)
 
   const batchSummary = computed(() => {
     const total = batchQueue.value.length
@@ -21,6 +22,38 @@ export const useOcrStore = defineStore('ocr', () => {
     const overallProgress = total > 0 ? Math.round(batchQueue.value.reduce((s, b) => s + b.progress, 0) / total) : 0
     return { total, done, processing, error, pending, overallProgress }
   })
+
+  async function loadDocuments() {
+    try {
+      const resp = await fetch('/api/documents')
+      if (resp.ok) {
+        const data = await resp.json()
+        documents.value = data as Document[]
+        if (documents.value.length > 0 && !currentDoc.value) {
+          currentDoc.value = documents.value[0]
+        }
+      }
+    } catch (e) {
+      // Silently fail - fallback to mock
+    } finally {
+      isInitialized.value = true
+    }
+  }
+
+  async function saveDocument(doc: Document) {
+    try {
+      await fetch(`/api/documents/${doc.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          results: doc.results,
+          annotations: doc.annotations,
+        }),
+      })
+    } catch (e) {
+      // Silently fail
+    }
+  }
 
   // Mock data
   const MOCK_DOC: Document = {
@@ -60,9 +93,9 @@ export const useOcrStore = defineStore('ocr', () => {
       if (resp.ok) {
         const data = await resp.json()
         const doc: Document = {
-          id: Date.now().toString(),
+          id: data.id,
           name: file.name,
-          imageUrl: URL.createObjectURL(file),
+          imageUrl: data.image_url || URL.createObjectURL(file),
           results: data.results || [],
           annotations: [],
           createdAt: new Date().toISOString()
@@ -71,7 +104,6 @@ export const useOcrStore = defineStore('ocr', () => {
         currentDoc.value = doc
       }
     } catch {
-      // Use mock data as fallback
       loadMockDocument()
     } finally {
       isLoading.value = false
@@ -84,11 +116,13 @@ export const useOcrStore = defineStore('ocr', () => {
       id: Date.now().toString(),
       type, bbox, label, content
     })
+    saveDocument(currentDoc.value)
   }
 
   function removeAnnotation(id: string) {
     if (!currentDoc.value) return
     currentDoc.value.annotations = currentDoc.value.annotations.filter(a => a.id !== id)
+    saveDocument(currentDoc.value)
   }
 
   function convertVariant(text: string): string {
@@ -137,9 +171,9 @@ export const useOcrStore = defineStore('ocr', () => {
           next.progress = 80
           const data = await resp.json()
           const doc: Document = {
-            id: Date.now().toString() + '_' + next.id,
+            id: data.id,
             name: next.file.name,
-            imageUrl: URL.createObjectURL(next.file),
+            imageUrl: data.image_url || URL.createObjectURL(next.file),
             results: data.results || [],
             annotations: [],
             createdAt: new Date().toISOString()
@@ -189,9 +223,9 @@ export const useOcrStore = defineStore('ocr', () => {
 
   return {
     documents, currentDoc, isLoading, searchQuery, searchResults,
-    batchQueue, isBatchProcessing, batchSummary,
+    batchQueue, isBatchProcessing, batchSummary, isInitialized,
     loadMockDocument, uploadAndOCR, addBatchFiles, removeBatchItem, clearCompletedBatch,
-    addAnnotation, removeAnnotation,
+    addAnnotation, removeAnnotation, loadDocuments, saveDocument,
     convertVariant, searchInDocuments, exportTEI
   }
 })
