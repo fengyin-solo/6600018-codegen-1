@@ -1,6 +1,6 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import type { Document, OCRResult, Annotation } from '../types'
+import type { Document, OCRResult, Annotation, BatchItem } from '../types'
 
 export const useOcrStore = defineStore('ocr', () => {
   const documents = ref<Document[]>([])
@@ -8,6 +8,19 @@ export const useOcrStore = defineStore('ocr', () => {
   const isLoading = ref(false)
   const searchQuery = ref('')
   const searchResults = ref<OCRResult[]>([])
+  const batchQueue = ref<BatchItem[]>([])
+  const isBatchProcessing = ref(false)
+
+  const batchSummary = computed(() => {
+    const total = batchQueue.value.length
+    if (total === 0) return null
+    const done = batchQueue.value.filter(b => b.status === 'done').length
+    const processing = batchQueue.value.filter(b => b.status === 'processing').length
+    const error = batchQueue.value.filter(b => b.status === 'error').length
+    const pending = batchQueue.value.filter(b => b.status === 'pending').length
+    const overallProgress = total > 0 ? Math.round(batchQueue.value.reduce((s, b) => s + b.progress, 0) / total) : 0
+    return { total, done, processing, error, pending, overallProgress }
+  })
 
   // Mock data
   const MOCK_DOC: Document = {
@@ -89,6 +102,78 @@ export const useOcrStore = defineStore('ocr', () => {
     )
   }
 
+  function addBatchFiles(files: File[]) {
+    const items: BatchItem[] = files.map((file, i) => ({
+      id: `${Date.now()}_${i}`,
+      file,
+      status: 'pending' as const,
+      progress: 0,
+    }))
+    batchQueue.value.push(...items)
+    if (!isBatchProcessing.value) {
+      processBatchQueue()
+    }
+  }
+
+  async function processBatchQueue() {
+    if (isBatchProcessing.value) return
+    isBatchProcessing.value = true
+
+    while (true) {
+      const next = batchQueue.value.find(b => b.status === 'pending')
+      if (!next) break
+
+      next.status = 'processing'
+      next.progress = 10
+
+      try {
+        const formData = new FormData()
+        formData.append('file', next.file)
+
+        next.progress = 30
+        const resp = await fetch('/api/ocr', { method: 'POST', body: formData })
+
+        if (resp.ok) {
+          next.progress = 80
+          const data = await resp.json()
+          const doc: Document = {
+            id: Date.now().toString() + '_' + next.id,
+            name: next.file.name,
+            imageUrl: URL.createObjectURL(next.file),
+            results: data.results || [],
+            annotations: [],
+            createdAt: new Date().toISOString()
+          }
+          documents.value.push(doc)
+          next.docId = doc.id
+          next.progress = 100
+          next.status = 'done'
+          if (!currentDoc.value) {
+            currentDoc.value = doc
+          }
+        } else {
+          next.status = 'error'
+          next.errorMsg = `HTTP ${resp.status}`
+          next.progress = 0
+        }
+      } catch (err) {
+        next.status = 'error'
+        next.errorMsg = err instanceof Error ? err.message : '未知错误'
+        next.progress = 0
+      }
+    }
+
+    isBatchProcessing.value = false
+  }
+
+  function removeBatchItem(id: string) {
+    batchQueue.value = batchQueue.value.filter(b => b.id !== id)
+  }
+
+  function clearCompletedBatch() {
+    batchQueue.value = batchQueue.value.filter(b => b.status !== 'done' && b.status !== 'error')
+  }
+
   function exportTEI(): string {
     if (!currentDoc.value) return ''
     let tei = '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -104,7 +189,9 @@ export const useOcrStore = defineStore('ocr', () => {
 
   return {
     documents, currentDoc, isLoading, searchQuery, searchResults,
-    loadMockDocument, uploadAndOCR, addAnnotation, removeAnnotation,
+    batchQueue, isBatchProcessing, batchSummary,
+    loadMockDocument, uploadAndOCR, addBatchFiles, removeBatchItem, clearCompletedBatch,
+    addAnnotation, removeAnnotation,
     convertVariant, searchInDocuments, exportTEI
   }
 })

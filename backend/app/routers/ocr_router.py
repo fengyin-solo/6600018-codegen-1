@@ -1,5 +1,7 @@
 import uuid
 import time
+import asyncio
+from typing import List
 from fastapi import APIRouter, UploadFile, File
 from app.services.ocr_service import run_ocr
 
@@ -16,6 +18,26 @@ async def ocr_endpoint(file: UploadFile = File(...)):
         "filename": file.filename,
         "results": results,
         "timestamp": time.time(),
+    }
+
+
+@router.post("/ocr/batch")
+async def ocr_batch_endpoint(files: List[UploadFile] = File(...)):
+    """Upload multiple images and run OCR on each sequentially."""
+    batch_results = []
+    for file in files:
+        content = await file.read()
+        results = run_ocr(content, file.filename or "unknown")
+        batch_results.append({
+            "id": str(uuid.uuid4()),
+            "filename": file.filename,
+            "results": results,
+            "timestamp": time.time(),
+        })
+        await asyncio.sleep(0)
+    return {
+        "total": len(batch_results),
+        "items": batch_results,
     }
 
 

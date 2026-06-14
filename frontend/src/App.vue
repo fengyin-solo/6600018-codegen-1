@@ -11,6 +11,13 @@
         </label>
       </div>
 
+      <div>
+        <label class="block bg-indigo-500 text-white text-center py-2 rounded cursor-pointer hover:bg-indigo-400 text-sm font-medium">
+          批量导入
+          <input type="file" accept="image/*" multiple @change="onBatchUpload" class="hidden" />
+        </label>
+      </div>
+
       <button @click="store.loadMockDocument()" class="bg-gray-800 py-2 rounded text-sm hover:bg-gray-700">
         加载示例文档
       </button>
@@ -22,6 +29,48 @@
         <div v-if="store.searchResults.length" class="mt-1 space-y-1">
           <div v-for="r in store.searchResults" :key="r.id" class="bg-gray-800 rounded p-1 text-xs">
             {{ r.text }} <span class="text-gray-500">{{ (r.confidence * 100).toFixed(0) }}%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Batch Progress Panel -->
+      <div v-if="store.batchQueue.length" class="bg-gray-800 rounded p-3 space-y-2">
+        <div class="flex justify-between items-center">
+          <h3 class="text-amber-300 font-bold text-xs">批量导入进度</h3>
+          <button v-if="store.batchSummary && store.batchSummary.done + store.batchSummary.error === store.batchSummary.total"
+            @click="store.clearCompletedBatch()" class="text-xs text-gray-400 hover:text-white">清空</button>
+        </div>
+
+        <div v-if="store.batchSummary" class="text-xs text-gray-400 flex justify-between">
+          <span>总计 {{ store.batchSummary.total }} 份</span>
+          <span>总进度 {{ store.batchSummary.overallProgress }}%</span>
+        </div>
+
+        <div class="w-full bg-gray-700 rounded-full h-2">
+          <div class="h-2 rounded-full transition-all duration-300"
+            :style="{ width: (store.batchSummary?.overallProgress || 0) + '%' }"
+            :class="store.batchSummary && store.batchSummary.error > 0 ? 'bg-yellow-500' : 'bg-indigo-500'">
+          </div>
+        </div>
+
+        <div v-if="store.batchSummary" class="flex gap-2 text-xs">
+          <span class="text-green-400">完成 {{ store.batchSummary.done }}</span>
+          <span class="text-indigo-400">处理中 {{ store.batchSummary.processing }}</span>
+          <span class="text-gray-500">等待 {{ store.batchSummary.pending }}</span>
+          <span v-if="store.batchSummary.error" class="text-red-400">失败 {{ store.batchSummary.error }}</span>
+        </div>
+
+        <div class="max-h-40 overflow-y-auto space-y-1">
+          <div v-for="item in store.batchQueue" :key="item.id"
+            class="flex items-center gap-2 text-xs py-1 px-2 rounded"
+            :class="item.status === 'processing' ? 'bg-indigo-900/30' : item.status === 'done' ? 'bg-green-900/30' : item.status === 'error' ? 'bg-red-900/30' : 'bg-gray-800'">
+            <span class="flex-1 truncate" :title="item.file.name">{{ item.file.name }}</span>
+            <span v-if="item.status === 'pending'" class="text-gray-500 shrink-0">等待中</span>
+            <span v-else-if="item.status === 'processing'" class="text-indigo-400 shrink-0">{{ item.progress }}%</span>
+            <span v-else-if="item.status === 'done'" class="text-green-400 shrink-0">✓</span>
+            <span v-else-if="item.status === 'error'" class="text-red-400 shrink-0" :title="item.errorMsg">✗</span>
+            <button v-if="item.status === 'done' || item.status === 'error'"
+              @click="store.removeBatchItem(item.id)" class="text-gray-600 hover:text-white shrink-0">×</button>
           </div>
         </div>
       </div>
@@ -95,6 +144,14 @@ const store = useOcrStore()
 function onUpload(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (file) store.uploadAndOCR(file)
+}
+
+function onBatchUpload(e: Event) {
+  const files = (e.target as HTMLInputElement).files
+  if (files && files.length > 0) {
+    store.addBatchFiles(Array.from(files))
+  }
+  ;(e.target as HTMLInputElement).value = ''
 }
 
 function doExport() {

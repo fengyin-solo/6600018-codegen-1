@@ -23,6 +23,17 @@ export interface Annotation {
   content: string
 }
 
+export type BatchItemStatus = 'pending' | 'processing' | 'done' | 'error'
+
+export interface BatchItem {
+  id: string
+  file: File
+  status: BatchItemStatus
+  progress: number
+  errorMsg?: string
+  docId?: string
+}
+
 export interface VariantChar {
   ancient: string
   modern: string
